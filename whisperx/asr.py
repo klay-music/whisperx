@@ -225,7 +225,8 @@ class FasterWhisperPipeline(Pipeline):
             offset=self._vad_params["vad_offset"],
         )
         if self.tokenizer is None:
-            language = language or self.detect_language(audio)
+            start_time = vad_segments[0]["start"] if vad_segments else 0.0
+            language = language or self.detect_language(audio, start_time=start_time)
             task = task or "transcribe"
             self.tokenizer = Tokenizer(
                 self.model.hf_tokenizer,
@@ -283,13 +284,16 @@ class FasterWhisperPipeline(Pipeline):
 
         return {"segments": segments, "language": language}
 
-    def detect_language(self, audio: np.ndarray) -> str:
+    def detect_language(self, audio: np.ndarray, start_time: float = 0.0) -> str:
         if audio.shape[0] < N_SAMPLES:
             print("Warning: audio is shorter than 30s, language detection may be inaccurate.")
         model_n_mels = self.model.feat_kwargs.get("feature_size")
-        segment = log_mel_spectrogram(audio[: N_SAMPLES],
-                                      n_mels=model_n_mels if model_n_mels is not None else 80,
-                                      padding=0 if audio.shape[0] >= N_SAMPLES else N_SAMPLES - audio.shape[0])
+        start_samples = int(start_time * SAMPLE_RATE)
+        segment = log_mel_spectrogram(
+            audio[start_samples:start_samples + N_SAMPLES],
+            n_mels=model_n_mels if model_n_mels is not None else 80,
+            padding=0 if audio.shape[0] >= N_SAMPLES else N_SAMPLES - audio.shape[0]
+        )
         encoder_output = self.model.encode(segment)
         results = self.model.model.detect_language(encoder_output)
         language_token, language_probability = results[0][0]
